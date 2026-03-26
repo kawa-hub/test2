@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>歯科医院ダッシュボード</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  padding: 20px;
+  background: #f5f7fa;
+}
+
+h1 {
+  color: #333;
+}
+
+input {
+  margin: 20px 0;
+}
+
+.container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+}
+
+th, td {
+  padding: 10px;
+  border: 1px solid #ddd;
+  text-align: center;
+}
+
+th {
+  background: #4CAF50;
+  color: white;
+}
+
+canvas {
+  background: white;
+  padding: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>歯科医院ダッシュボード</h1>
+
+<input type="file" id="csvFile" accept=".csv">
+
+<div class="container">
+
+  <!-- スタッフ別集計 -->
+  <div>
+    <h2>スタッフ別集計</h2>
+    <table id="resultTable">
+      <thead>
+        <tr>
+          <th>スタッフ</th>
+          <th>予約数</th>
+          <th>稼働率</th>
+          <th>リピート率</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- 稼働率グラフ -->
+  <div>
+    <h2>日別 稼働率（%）</h2>
+    <canvas id="chart"></canvas>
+  </div>
+
+</div>
+
+<script>
+let chart;
+
+document.getElementById('csvFile').addEventListener('change', handleFile);
+
+function handleFile(e) {
+  const file = e.target.files[0];
+  const reader = new FileReader();
+
+  reader.onload = function(event) {
+    const text = event.target.result;
+    const data = parseCSV(text);
+    analyzeData(data);
+  };
+
+  reader.readAsText(file);
+}
+
+// CSVパース
+function parseCSV(text) {
+  const lines = text.trim().split(/\\r?\\n/);
+  const headers = lines[0].split(/[;,]/);
+
+  return lines.slice(1)
+    .filter(line => line.trim() !== "")
+    .map(line => {
+      const values = line.split(/[;,]/);
+      let obj = {};
+      headers.forEach((h, i) => obj[h.trim()] = values[i]?.trim());
+      return obj;
+    });
+}
+
+// データ分析（スタッフ別＋日別）
+function analyzeData(data) {
+
+  const staffStats = {};
+  const dailyStats = {};
+
+  data.forEach(row => {
+    const staff = row.staff;
+    const patient = row.patient_id;
+    const status = row.status;
+    const date = row.date;
+
+    // --- スタッフ別 ---
+    if (!staffStats[staff]) {
+      staffStats[staff] = {
+        total: 0,
+        completed: 0,
+        patients: {}
+      };
+    }
+
+    staffStats[staff].total++;
+
+    if (status === "completed") {
+      staffStats[staff].completed++;
+    }
+
+    if (!staffStats[staff].patients[patient]) {
+      staffStats[staff].patients[patient] = 0;
+    }
+    staffStats[staff].patients[patient]++;
+
+    // --- 日別 ---
+    if (!dailyStats[date]) {
+      dailyStats[date] = {
+        total: 0,
+        completed: 0
+      };
+    }
+
+    dailyStats[date].total++;
+
+    if (status === "completed") {
+      dailyStats[date].completed++;
+    }
+  });
+
+  renderTable(staffStats);
+  renderChart(dailyStats);
+}
+
+// スタッフ別テーブル
+function renderTable(stats) {
+  const tbody = document.querySelector("#resultTable tbody");
+  tbody.innerHTML = "";
+
+  Object.keys(stats).forEach(staff => {
+    const s = stats[staff];
+
+    const utilization = s.total > 0
+      ? ((s.completed / s.total) * 100).toFixed(1)
+      : 0;
+
+    let repeatPatients = 0;
+    let totalPatients = Object.keys(s.patients).length;
+
+    Object.values(s.patients).forEach(count => {
+      if (count > 1) repeatPatients++;
+    });
+
+    const repeatRate = totalPatients > 0
+      ? ((repeatPatients / totalPatients) * 100).toFixed(1)
+      : 0;
+
+    const row = `
+      <tr>
+        <td>${staff}</td>
+        <td>${s.total}</td>
+        <td>${utilization}%</td>
+        <td>${repeatRate}%</td>
+      </tr>
+    `;
+
+    tbody.innerHTML += row;
+  });
+}
+
+// 日別稼働率グラフ
+function renderChart(stats) {
+  const dates = Object.keys(stats).sort();
+
+  const utilizationData = dates.map(date => {
+    const s = stats[date];
+    return s.total > 0
+      ? (s.completed / s.total * 100).toFixed(1)
+      : 0;
+  });
+
+  const ctx = document.getElementById('chart').getContext('2d');
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [{
+        label: '稼働率（%）',
+        data: utilizationData,
+        tension: 0.3
+      }]
+    },
+    options: {
+      scales: {
+        y: {
+          min: 0,
+          max: 100
+        }
+      }
+    }
+  });
+}
+</script>
+
+</body>
+</html>
